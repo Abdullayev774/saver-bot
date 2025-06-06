@@ -5,20 +5,25 @@ from yt_dlp import YoutubeDL
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
-load_dotenv()
+# Yuklab olingan fayllar saqlanadigan joy
+os.makedirs("downloads", exist_ok=True)
 
+# Muhit o‘zgaruvchilarni yuklash
+load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 logging.basicConfig(level=logging.INFO)
 
+# Foydalanuvchilar tili
 user_languages = {}
 
+# Tilga mos matnlar
 translations = {
     "uz": {
         "start": "👋 Salom!\n\nBu — *Saver on YouTube* 📅\nSiz YouTube’dan video yoki audio fayllarni yuklab olish uchun yaratilgan oddiy, lekin qulay botdasiz.\n\n🎬 Foydalanish: YouTube havolasini yuboring — men yuklab beraman.\n\n❌ Faqat YouTube havolalari yuboring.\n\n❓ Muammo bo‘lsa, @Abdullayev774 ga yozing",
         "choose_lang": "🔊 Tilni tanlang:",
         "choose_type": "🔊 Fayl turini tanlang:",
         "ask_link": "🔗 Iltimos, YouTube havolasini yuboring.",
-        "buttons": ["\ud83c\udfb5 Audio", "\ud83c\udfa5 Video"],
+        "buttons": ["🎧 Audio", "🎬 Video"],
         "downloading": "🔄 Yuklanmoqda...",
         "downloaded_by": "\n\n🔗 @SaveronYoutuber_bot orqali yuklab olindi"
     },
@@ -27,7 +32,7 @@ translations = {
         "choose_lang": "🔊 Выберите язык:",
         "choose_type": "🔊 Выберите тип файла:",
         "ask_link": "🔗 Отправьте ссылку на YouTube.",
-        "buttons": ["\ud83c\udfb5 Аудио", "\ud83c\udfa5 Видео"],
+        "buttons": ["🎧 Аудио", "🎬 Видео"],
         "downloading": "🔄 Скачивание...",
         "downloaded_by": "\n\n🔗 Скачано через @SaveronYoutuber_bot"
     },
@@ -36,12 +41,13 @@ translations = {
         "choose_lang": "🔊 Please choose your language:",
         "choose_type": "🔊 Select the file type:",
         "ask_link": "🔗 Send the YouTube link:",
-        "buttons": ["\ud83c\udfb5 Audio", "\ud83c\udfa5 Video"],
+        "buttons": ["🎧 Audio", "🎬 Video"],
         "downloading": "🔄 Downloading...",
         "downloaded_by": "\n\n🔗 Downloaded via @SaveronYoutuber_bot"
     }
 }
 
+# /start komandasi
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
@@ -55,6 +61,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+# Til tanlash tugmasi bosilganda
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -64,6 +71,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_text(tr['start'])
     await query.message.reply_text(tr['ask_link'])
 
+# Havola yuborilganda
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = user_languages.get(update.message.from_user.id, 'uz')
     tr = translations[lang]
@@ -76,6 +84,7 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(tr['choose_type'], reply_markup=InlineKeyboardMarkup(keyboard))
 
+# Yuklab olishni boshlash
 async def download_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -83,7 +92,7 @@ async def download_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = user_languages.get(user_id, 'uz')
     tr = translations[lang]
 
-    type_, url = query.data.split('|')
+    type_, url = query.data.split('|', 1)
     await query.message.reply_text(tr['downloading'])
 
     try:
@@ -91,26 +100,34 @@ async def download_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'format': 'bestaudio/best' if type_ == 'audio' else 'best[ext=mp4]/best',
             'outtmpl': 'downloads/%(title)s.%(ext)s',
             'quiet': True,
+            'noplaylist': True,
         }
+
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
+            filepath = ydl.prepare_filename(info)
+
+        if not os.path.exists(filepath):
+            raise Exception("Yuklab olingan fayl topilmadi.")
 
         if type_ == 'audio':
-            audio_path = filename.replace('.webm', '.mp3').replace('.m4a', '.mp3')
-            if os.path.exists(audio_path):
-                await query.message.reply_audio(audio=open(audio_path, 'rb'), title=info['title'], caption=tr['downloaded_by'])
-                os.remove(audio_path)
-            else:
-                await query.message.reply_audio(audio=open(filename, 'rb'), title=info['title'], caption=tr['downloaded_by'])
-                os.remove(filename)
+            await query.message.reply_audio(
+                audio=open(filepath, 'rb'),
+                title=info.get("title"),
+                caption=tr['downloaded_by']
+            )
         else:
-            await query.message.reply_video(video=open(filename, 'rb'), caption=info['title'] + tr['downloaded_by'])
-            os.remove(filename)
+            await query.message.reply_video(
+                video=open(filepath, 'rb'),
+                caption=info.get("title") + tr['downloaded_by']
+            )
+
+        os.remove(filepath)
 
     except Exception as e:
         await query.message.reply_text(f"❌ Xatolik: {e}")
 
+# Ishga tushirish
 if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
